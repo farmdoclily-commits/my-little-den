@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Aadhaar V10 (Unbreakable Mode)
+// @name         Aadhaar V11.1 (Tripura eHospital Only)
 // @namespace    http://tampermonkey.net/
-// @version      10.0
-// @description  Uses Event Delegation to prevent 'disconnects' + Permanent DB
+// @version      11.1
+// @description  Restricted to ehospital.tripura.gov.in + Auto DOB
 // @author       Gemini
-// @match        *://*/*
+// @match        https://ehospital.tripura.gov.in/ehospitalabdm/*
 // @grant        none
 // ==/UserScript==
 
@@ -12,12 +12,13 @@
     'use strict';
 
     // --- CONFIGURATION ---
-    const DB_NAME = 'Aadhaar_Perm_v9'; // Keep v9 DB so you don't have to reload CSV
-    const STORE_NAME = 'members_v9';
+    // Using same DB name so you don't have to reload CSV if you already did for V11
+    const DB_NAME = 'Aadhaar_V11_DOB';
+    const STORE_NAME = 'members_v11';
     const BATCH_SIZE = 5000;
     // ---------------------
 
-    // 1. UI PANEL (Keeps your interface)
+    // 1. UI PANEL
     const panel = document.createElement('div');
     Object.assign(panel.style, {
         position: 'fixed', bottom: '10px', right: '10px', zIndex: '10000',
@@ -27,13 +28,13 @@
     });
 
     panel.innerHTML = `
-        <strong style="display:block; margin-bottom:10px; color:#333;">⚙️ Aadhaar Auto-Fill (V10)</strong>
+        <strong style="display:block; margin-bottom:10px; color:#333;">⚙️ Aadhaar Auto-Fill (V11.1)</strong>
         <div id="dbStatus" style="margin-bottom:10px; padding:8px; background:#f8f9fa; border-radius:4px; font-weight:bold; color:#666; text-align:center;">Checking DB...</div>
         <div id="settingsArea">
             <input type="text" id="def_sub" placeholder="Sub-District" style="width:100%; margin-bottom:5px; padding:4px;">
             <input type="text" id="def_block" placeholder="Block" style="width:100%; margin-bottom:10px; padding:4px;">
         </div>
-        <button id="loadBtn" style="width:100%; padding:8px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer;">📂 Upload New CSV</button>
+        <button id="loadBtn" style="width:100%; padding:8px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer;">📂 Upload CSV (4 Cols)</button>
         <div id="progressMsg" style="margin-top:8px; font-size:11px; color:#333; max-height:100px; overflow-y:auto;"></div>
     `;
     document.body.appendChild(panel);
@@ -85,7 +86,7 @@
     }
     checkExistingData();
 
-    // 3. CSV LOADER (Same as before)
+    // 3. CSV LOADER
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.csv';
@@ -112,18 +113,21 @@
                 const endIndex = Math.min(startIndex + BATCH_SIZE, totalRows);
                 const txBatch = db.transaction(STORE_NAME, 'readwrite');
                 const storeBatch = txBatch.objectStore(STORE_NAME);
+
                 for (let i = startIndex; i < endIndex; i++) {
                     const cols = rows[i].split(',');
-                    if (cols.length >= 3) {
+                    if (cols.length >= 4) {
                         const rawUid = cols[1].trim();
                         const cleanDigits = rawUid.replace(/[^0-9]/g, '');
+
                         if (cleanDigits.length >= 1) {
                             let finalLast4 = cleanDigits.slice(-4).padStart(4, '0');
                             storeBatch.put({
                                 name: cols[0].trim(),
                                 uid_display: rawUid,
                                 last4: finalLast4,
-                                gender: cols[2].trim()
+                                gender: cols[2].trim(),
+                                birthYear: cols[3].trim()
                             });
                             processed++;
                         }
@@ -141,51 +145,40 @@
         reader.readAsText(file);
     };
 
-    // 4. THE NEW "UNBREAKABLE" ENGINE (Event Delegation)
-
-    // Create the Datalist once and keep it in the DOM
-    const listID = "aadhaar-master-list";
+    // 4. ENGINE
+    const listID = "aadhaar-master-list-v11";
     let dataList = document.getElementById(listID);
     if (!dataList) {
         dataList = document.createElement('datalist');
         dataList.id = listID;
         document.body.appendChild(dataList);
     }
-
     let currentMatches = [];
 
-    // Helper: Identify if an element is the Aadhaar Input
     function isAadhaarInput(el) {
         if (!el || el.tagName !== 'INPUT') return false;
-        const placeholder = el.placeholder ? el.placeholder.toLowerCase() : '';
-        const parentText = el.parentElement ? el.parentElement.innerText.toLowerCase() : '';
-        return placeholder.includes('aadhaar') || parentText.includes('aadhaar');
+        const p = el.placeholder ? el.placeholder.toLowerCase() : '';
+        const t = el.parentElement ? el.parentElement.innerText.toLowerCase() : '';
+        return p.includes('aadhaar') || t.includes('aadhaar');
     }
-
-    // Helper: Identify if an element is the Name Input
     function isNameInput(el) {
         if (!el || el.tagName !== 'INPUT') return false;
-        const placeholder = el.placeholder ? el.placeholder.toLowerCase() : '';
-        const parentText = el.parentElement ? el.parentElement.innerText.toLowerCase() : '';
-        return placeholder.includes('name') || parentText.includes('name');
+        const p = el.placeholder ? el.placeholder.toLowerCase() : '';
+        const t = el.parentElement ? el.parentElement.innerText.toLowerCase() : '';
+        return p.includes('name') || t.includes('name');
     }
 
-    // Listen to ALL input events on the page (The "Unbreakable" Listener)
     document.addEventListener('input', async function(e) {
         const target = e.target;
 
-        // A. If typing in Aadhaar Field
+        // A. Aadhaar Typing
         if (isAadhaarInput(target)) {
             const val = target.value.replace(/\s/g, '');
-
-            // Find the Name field nearby
             const inputs = Array.from(document.querySelectorAll('input'));
             const nameField = inputs.find(i => isNameInput(i));
 
             if (nameField && val.length === 12) {
-                // Link the datalist to the name field dynamically
                 nameField.setAttribute('list', listID);
-
                 const last4 = val.slice(-4);
                 const db = await openDB();
                 const tx = db.transaction(STORE_NAME, 'readonly');
@@ -195,7 +188,6 @@
                 req.onsuccess = () => {
                     currentMatches = req.result;
                     dataList.innerHTML = '';
-
                     if (currentMatches.length > 0) {
                         currentMatches.forEach(m => {
                             const opt = document.createElement('option');
@@ -203,37 +195,33 @@
                             opt.label = `...${m.last4}`;
                             dataList.appendChild(opt);
                         });
-
-                        if (currentMatches.length === 1) {
-                            fillAll(currentMatches[0]);
-                        } else {
-                            // Focus name so user sees dropdown
-                            nameField.focus();
-                        }
+                        if (currentMatches.length === 1) fillAll(currentMatches[0]);
+                        else nameField.focus();
                     }
                 };
             }
         }
 
-        // B. If selecting Name from list
+        // B. Name Selection
         if (isNameInput(target)) {
-            // Check if value matches a person in our memory
             const person = currentMatches.find(p => p.name === target.value);
-            if (person) {
-                fillAll(person);
-            }
+            if (person) fillAll(person);
         }
     });
 
     // 5. FILL LOGIC
     function fillAll(person) {
-        // Find fields again (fresh search ensures we get current elements)
         const inputs = Array.from(document.querySelectorAll('input'));
         const selects = Array.from(document.querySelectorAll('select'));
         const labels = Array.from(document.querySelectorAll('label'));
 
         const nameField = inputs.find(i => isNameInput(i));
         const genderField = selects.find(s => s.innerHTML.toLowerCase().includes('male'));
+
+        const dobField = inputs.find(i =>
+            (i.placeholder && i.placeholder.includes('DD/MM/YYYY')) ||
+            (i.parentElement && i.parentElement.innerText && i.parentElement.innerText.includes('DOB'))
+        );
 
         const findByText = (els, txt) => els.find(el => (el.name||'').toLowerCase().includes(txt) || (el.parentElement?.innerText||'').toLowerCase().includes(txt));
         const subDist = findByText(selects, 'sub-district') || findByText(selects, 'sub district');
@@ -247,7 +235,7 @@
             if (!consentCheck) consentCheck = consentLabel.parentElement.querySelector('input[type="checkbox"]');
         }
 
-        // Execute Fill
+        // EXECUTE
         if (nameField && nameField.value !== person.name) {
             nameField.value = person.name;
             nameField.dispatchEvent(new Event('input', { bubbles: true }));
@@ -255,15 +243,19 @@
 
         setDropdown(genderField, person.gender);
 
+        if (dobField && person.birthYear) {
+            dobField.value = `01/01/${person.birthYear}`;
+            dobField.dispatchEvent(new Event('input', { bubbles: true }));
+            dobField.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
         const dSub = document.getElementById('def_sub').value;
         const dBlock = document.getElementById('def_block').value;
 
         setTimeout(() => {
             if (dSub) setDropdown(subDist, dSub);
             if (dBlock) setDropdown(block, dBlock);
-            if (consentCheck && !consentCheck.checked) {
-                consentCheck.click();
-            }
+            if (consentCheck && !consentCheck.checked) consentCheck.click();
         }, 100);
     }
 
