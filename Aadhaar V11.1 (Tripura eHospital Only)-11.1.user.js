@@ -21,7 +21,7 @@
     // 1. UI PANEL
     const panel = document.createElement('div');
     Object.assign(panel.style, {
-        position: 'fixed', bottom: '10px', right: '10px', zIndex: '10000',
+        position: 'fixed', bottom: '10px', left: '10px', zIndex: '10000',
         padding: '15px', background: 'white', border: '1px solid #ccc',
         borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
         fontFamily: 'Arial, sans-serif', fontSize: '13px', width: '260px'
